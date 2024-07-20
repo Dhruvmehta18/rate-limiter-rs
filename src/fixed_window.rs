@@ -32,14 +32,18 @@ fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
 
 async fn echo(
     req: Request<hyper::body::Incoming>,
-    token_bucket: TokenBucket
+    token_bucket: TokenBucket,
+    client_ip: Option<SocketAddr>
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
-    let client_ip = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|header| header.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+    let client_ip_str = client_ip
+        .map(|addr| addr.to_string())
+        .unwrap_or_else(|| {
+            req.headers()
+                .get("x-forwarded-for")
+                .and_then(|header| header.to_str().ok())
+                .unwrap_or("unknown")
+                .to_string()
+        });
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => Ok(Response::new(full(
             "Try POSTing data to /echo",
@@ -52,7 +56,7 @@ async fn echo(
             // Implement rate limiting logic here
             {
                 let mut buckets = token_bucket.lock().unwrap();
-                let count = buckets.entry(client_ip.clone()).or_insert(0);
+                let count = buckets.entry(client_ip_str.clone()).or_insert(0);
 
                 if *count >= 5 { // Example: Limit to 5 requests
                     let mut resp = Response::new(full("Too many requests"));
@@ -98,6 +102,10 @@ pub(crate) async fn fixed_window() -> Result<(), Box<dyn std::error::Error + Sen
 
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
         // `hyper::rt` IO traits.
+        let client_ip = match stream.peer_addr() {
+            Ok(addr) => Some(addr),
+            Err(_) => None,
+        };
         let io = TokioIo::new(stream);
         let token_bucket = Arc::clone(&token_bucket);
 
@@ -105,7 +113,7 @@ pub(crate) async fn fixed_window() -> Result<(), Box<dyn std::error::Error + Sen
         tokio::task::spawn(async move {
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(move |request| echo(request, token_bucket.clone())))
+                .serve_connection(io, service_fn(move |request| echo(request, token_bucket.clone(), client_ip.clone())))
                 .await
             {
                 eprintln!("Error serving connection: {:?}", err);
