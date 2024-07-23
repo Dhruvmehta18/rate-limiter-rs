@@ -4,6 +4,7 @@ use hyper::body::Body;
 mod logger_http;
 
 mod fixed_window;
+mod token_bucket;
 
 enum RateLimitingStrategy {
     FixedWindow,
@@ -13,7 +14,7 @@ enum RateLimitingStrategy {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-   const STRATEGY: RateLimitingStrategy = RateLimitingStrategy::FixedWindow;
+   const STRATEGY: RateLimitingStrategy = RateLimitingStrategy::TokenBucket;
 
     match STRATEGY {
         RateLimitingStrategy::FixedWindow => {
@@ -25,7 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             todo!("Need to implement this")
         }
         RateLimitingStrategy::TokenBucket => {
-            todo!("Need to implement this")
+            use token_bucket::token_bucket;
+
+            return token_bucket().await
         }
     }
 }
